@@ -1,7 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import pool from './db.js';  
-import repoRoutes from './routes/repo.routes.js';  
+import repoRoutes from './routes/repo.routes.js';
 
 const app = express();
 app.use(cors());

@@ -1,6 +1,7 @@
 import pool from '../db.js';
 import { processRepositoryChunks } from '../services/chunkService.js';
 import { analyzeAndChunkRepository } from '../services/repoAnalyzer.service.js';
+import { indexRepositoryChunks } from '../services/indexChunk.service.js';
 
 export const createRepository = async(req, res) => {
     try {
@@ -83,5 +84,36 @@ export const analyzeAndChunkRepositoryCode = async (req, res) => {
     } catch (error) {
         console.error('Error analyzing/chunking repository code:', error);
         return res.status(500).json({ error: 'Analyze + chunk processing failed' });
+    }
+};
+
+export const embedRepositoryChunks = async (req, res) => {
+    try {
+        const { repoId } = req.body;
+
+        if (!repoId) {
+            return res.status(400).json({
+                error: 'repoId is required'
+            });
+        }
+
+        const repoCheck = await pool.query(
+            'SELECT id FROM repositories WHERE id = $1',
+            [repoId]
+        );
+
+        if (repoCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Repository not found' });
+        }
+
+        const result = await indexRepositoryChunks(repoId);
+
+        return res.json({
+            message: 'Embedding completed',
+            summary: result
+        });
+    } catch (error) {
+        console.error('Error embedding repository chunks:', error);
+        return res.status(500).json({ error: 'Embedding processing failed' });
     }
 };

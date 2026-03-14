@@ -45,10 +45,13 @@ export async function processRepositoryChunks({ repoId, repoPath, files }) {
         continue;
       }
 
+      // Insert file first to get file_id
+      const fileId = await insertFileRec(repoId, relativePath, readResult.content);
+
       // Create chunks
       const chunks = chunkSourceCode({
         repoId,
-        filePath: relativePath,
+        fileId,
         content: readResult.content
       });
 
@@ -82,7 +85,7 @@ export async function processRepositoryChunks({ repoId, repoPath, files }) {
 }
 
 
-export function chunkSourceCode({ repoId, filePath, content }) {
+export function chunkSourceCode({ repoId, fileId, content }) {
 
   const lines = content.split("\n");
   const chunks = [];
@@ -100,7 +103,7 @@ export function chunkSourceCode({ repoId, filePath, content }) {
 
     chunks.push({
       repo_id: repoId,
-      file_path: filePath,
+      file_id: fileId,
       chunk_index: index,
       start_line: start + 1,
       end_line: end,
@@ -131,7 +134,7 @@ async function insertChunks(chunks) {
 
     const query = `
       INSERT INTO chunks 
-      (repo_id, file_path, chunk_index, start_line, end_line, content)
+      (repo_id, file_id, chunk_index, start_line, end_line, content)
       VALUES ($1,$2,$3,$4,$5,$6)
     `;
 
@@ -139,7 +142,7 @@ async function insertChunks(chunks) {
 
       await client.query(query, [
         chunk.repo_id,
-        chunk.file_path,
+        chunk.file_id,
         chunk.chunk_index,
         chunk.start_line,
         chunk.end_line,
@@ -160,4 +163,17 @@ async function insertChunks(chunks) {
     client.release();
 
   }
+}
+
+async function insertFileRec(repoId, filePath, content) {
+  const language = path.extname(filePath).slice(1) || 'text';
+  const totalLines = content.split('\n').length;
+
+  const query = `
+    INSERT INTO files (repo_id, file_path, language, total_lines)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id
+  `;
+  const result = await pool.query(query, [repoId, filePath, language, totalLines]);
+  return result.rows[0].id;
 }
