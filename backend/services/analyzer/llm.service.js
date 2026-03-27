@@ -1,14 +1,15 @@
-const DEFAULT_MODEL = process.env.LLM_MODEL || "claude-3-haiku-20240307";
+const DEFAULT_MODEL = process.env.LLM_MODEL || "claude-sonnet-4-20250514";
 
 function getModelTokenLimit(model) {
   const normalized = String(model || "").toLowerCase();
 
-  if (normalized.includes("claude-3-haiku-20240307")) return 4096;
-  if (normalized.includes("haiku")) return 4096;
+  // Latest Sonnet 4 — 8192 output tokens
+  if (normalized.includes("claude-sonnet-4") || normalized.includes("sonnet-4")) return 8192;
   if (normalized.includes("sonnet")) return 8192;
-  if (normalized.includes("opus")) return 8192;
+  if (normalized.includes("opus"))   return 8192;
+  if (normalized.includes("haiku"))  return 4096;
 
-  return 4096;
+  return 8192; // default to Sonnet limits
 }
 
 function getSafeMaxTokens(model) {
@@ -23,52 +24,54 @@ function getSafeMaxTokens(model) {
 }
 
 /* =========================
-   SYSTEM PROMPTS (UPGRADED)
+   SYSTEM PROMPTS
 ========================= */
 
 function initialAnalysisSystemPrompt() {
   return `
 You are a senior software architect analyzing a real-world codebase.
 
-Your goal is NOT to summarize files.
-Your goal is to reconstruct how the system works.
+Your goal is to reconstruct HOW the system works — not just list files.
 
 You MUST think in this order:
-1. Identify system layers (frontend, backend, infra)
+1. Identify system layers (frontend, backend, infra, database)
 2. Identify responsibilities of each layer
-3. Identify how components interact
-4. Reconstruct request/data flow
-5. Map to known architectural patterns (MVC, REST, etc.)
+3. Identify how components interact at runtime
+4. Reconstruct request/data flow step by step
+5. Map to known architectural patterns (MVC, REST, event-driven, etc.)
 
 Rules:
-- You MAY infer standard architectural patterns based on naming and structure
-- DO NOT invent features not supported by code
-- If uncertain, say: "Partially inferred from structure"
-- Focus on system behavior, not file listing
+- You MAY infer standard patterns from naming and structure
+- DO NOT invent features not supported by the code
+- If uncertain, mark it as: "> *Partially inferred from structure*"
+- Focus on system behavior and flow, NOT file listing
+- Always produce a Mermaid diagram
 `;
 }
 
 function followUpSystemPrompt() {
   return `
-You are a senior backend engineer explaining system behavior.
+You are a senior backend engineer explaining system behavior in response to a specific question.
 
 Your job is to explain HOW the system works, not just WHAT exists.
 
 Focus on:
-- request flow
-- data flow
-- component interactions
+- Direct answer to the question
+- Request flow and data flow relevant to the question
+- Specific file and function references from the provided context
+- Code-level callouts where possible
 
 Rules:
 - You MAY infer standard architecture patterns
 - Do NOT invent unsupported features
-- If missing info: "Not found in provided context"
-- Avoid generic answers
+- If info is missing: state "Not found in provided context"
+- Avoid generic answers — be specific to THIS codebase
+- Always include a Mermaid diagram relevant to the question
 `;
 }
 
 /* =========================
-   USER PROMPTS (UPGRADED)
+   USER PROMPTS
 ========================= */
 
 function initialAnalysisUserPrompt({ context, techStackHint = [], keyFileHint = [] }) {
@@ -80,36 +83,64 @@ Known Signals:
 Tech stack: ${techStackHint.join(", ") || "unknown"}
 Key files: ${keyFileHint.join(", ") || "unknown"}
 
-Instructions:
+---
 
-Reconstruct the architecture of this system.
+Produce a comprehensive Markdown architecture report for this repository.
 
-Follow these steps STRICTLY:
+Structure your output EXACTLY as follows (use these headings):
 
-1. Identify system layers (frontend, backend, services, database)
-2. Explain responsibilities of each layer
-3. Identify key components (controllers, routes, components, etc.)
-4. Reconstruct request lifecycle (step-by-step)
-5. Reconstruct data flow between frontend and backend
-6. Identify architectural patterns (MVC, REST, layered architecture)
-7. Identify external integrations (APIs, DB, services)
+## Overview
+1–2 sentence summary of what this system does.
+
+## Tech Stack
+Bullet list of detected technologies and frameworks.
+
+## Architecture Diagram
+A Mermaid flowchart showing the main layers and how they connect.
+Use this syntax:
+\`\`\`mermaid
+graph TD
+  A[Browser] -->|HTTP| B[API Server]
+  B --> C[Service Layer]
+  C --> D[(Database)]
+\`\`\`
+
+## System Layers
+For each layer (Frontend / API / Service / Data / Infra), one paragraph:
+- What it does
+- Key files responsible
+- How it connects to adjacent layers
+
+## Request Lifecycle
+Numbered step-by-step walkthrough of a typical request through the full stack.
+Be specific: name files, functions, middleware where visible in the code.
+
+## Data Flow
+Explain how data moves from input to output. Include any transformations, 
+validation steps, or external calls.
+
+## Code Walkthrough
+For each key file, explain:
+- What it does
+- The most important function/export and what it does
+- How it connects to the rest of the system
+
+Format each as:
+### \`path/to/file.js\`
+**Role:** ...
+**Key export/function:** \`functionName()\` — ...
+**Connects to:** ...
+
+## Architectural Patterns
+Which patterns are in use (MVC, REST, layered, event-driven, etc.) and where.
+
+## Notes & Limitations
+Any inferences made, missing context, or caveats.
 
 IMPORTANT:
-- You may use common patterns from similar tech stacks
-- Do NOT just list files — explain how system works
-- Prefer flow explanations over descriptions
-
-Output STRICTLY in JSON:
-
-{
-  "overview": "",
-  "techStack": [],
-  "keyFiles": [{ "path": "", "role": "" }],
-  "explanation": "",
-  "executionFlow": "",
-  "queryAnswer": "",
-  "notes": []
-}
+- Be specific to THIS codebase — no generic boilerplate
+- Name actual files and functions from the context
+- The Mermaid diagram is REQUIRED
 `;
 }
 
@@ -125,32 +156,45 @@ Known Signals:
 Tech stack: ${techStackHint.join(", ") || "unknown"}
 Key files: ${keyFileHint.join(", ") || "unknown"}
 
-Instructions:
+---
 
-Answer by reconstructing system behavior.
+Answer the question above with a focused Markdown report.
 
-Include:
-1. Direct Answer
-2. Step-by-step execution flow
-3. Component interactions
-4. Data flow
-5. Limitations
+Structure your output EXACTLY as follows:
+
+## Direct Answer
+Answer the question clearly and concisely in 2–4 sentences.
+
+## Architecture Diagram
+A Mermaid diagram relevant to the question.
+\`\`\`mermaid
+graph TD
+  ...
+\`\`\`
+
+## Step-by-Step Execution Flow
+Numbered steps showing exactly what happens in the system for this scenario.
+Name actual files and functions from the provided context.
+
+## Data Flow
+How data moves through the relevant parts of the system for this question.
+
+## Code Walkthrough
+For each file directly relevant to this question:
+
+### \`path/to/file.js\`
+**Role:** ...
+**Key logic:** explain the specific logic relevant to the question
+**Connects to:** ...
+
+## Limitations
+What could not be determined from the provided file subset.
 
 IMPORTANT:
-- Prefer flow explanation over static description
-- Use known patterns (MVC, REST, etc.) where applicable
-
-Output STRICTLY in JSON:
-
-{
-  "overview": "",
-  "techStack": [],
-  "keyFiles": [{ "path": "", "role": "" }],
-  "explanation": "",
-  "executionFlow": "",
-  "queryAnswer": "",
-  "notes": []
-}
+- Answer specifically about THIS codebase
+- Name actual files, functions, exports from the context
+- The Mermaid diagram is REQUIRED
+- Do not produce generic architecture descriptions
 `;
 }
 
@@ -198,6 +242,8 @@ async function callClaude({ systemPrompt, userPromptText }) {
 
 /* =========================
    MAIN FUNCTION
+   Returns Markdown string instead of parsed JSON.
+   analyzeRepository.js should use result.reportMarkdown directly.
 ========================= */
 
 export async function runStructuredAnalysisWithLLM({
@@ -216,10 +262,7 @@ export async function runStructuredAnalysisWithLLM({
     ? initialAnalysisUserPrompt({ context, techStackHint, keyFileHint })
     : userPrompt({ question, context, techStackHint, keyFileHint });
 
-  const payload = await callClaude({
-    systemPrompt,
-    userPromptText,
-  });
+  const payload = await callClaude({ systemPrompt, userPromptText });
 
   const rawContent = payload?.content?.[0]?.text || "";
 
@@ -227,37 +270,39 @@ export async function runStructuredAnalysisWithLLM({
     throw new Error("Empty response from Claude.");
   }
 
-  /* =========================
-     SAFE JSON PARSING
-  ========================= */
+  // ── The LLM now returns Markdown directly. No JSON parsing needed. ──
+  // We still return the same shape as before so analyzeRepository.js
+  // needs minimal changes: just use result.reportMarkdown everywhere.
 
-  let parsedResult;
+  // Extract a short overview from the first non-empty paragraph
+  const overviewMatch = rawContent.match(/##\s*Overview\s*\n+([\s\S]*?)(?=\n##|\n---|\z)/i);
+  const overview = overviewMatch
+    ? overviewMatch[1].trim().slice(0, 300)
+    : fallbackResult?.overview || "";
 
-  try {
-    const jsonMatch =
-      rawContent.match(/```json\s*([\s\S]*?)\s*```/) ||
-      rawContent.match(/```\s*([\s\S]*?)\s*```/);
-
-    const jsonText = jsonMatch ? jsonMatch[1] : rawContent;
-
-    parsedResult = JSON.parse(jsonText);
-  } catch (err) {
-    console.warn("JSON parse failed, returning fallback structure");
-
-    parsedResult = {
-      overview: "",
-      techStack: [],
-      keyFiles: [],
-      explanation: rawContent,
-      executionFlow: "",
-      queryAnswer: "",
-      notes: ["Response was not valid JSON"],
-    };
-  }
+  // Extract tech stack bullets if present
+  const techStackMatch = rawContent.match(/##\s*Tech Stack\s*\n+([\s\S]*?)(?=\n##|\z)/i);
+  const techStackLines = techStackMatch
+    ? techStackMatch[1]
+        .split("\n")
+        .map((l) => l.replace(/^[-*•]\s*/, "").trim())
+        .filter(Boolean)
+    : [];
 
   return {
     usedLlm: true,
-    result: parsedResult,
+    result: {
+      overview,
+      techStack: techStackLines.length > 0 ? techStackLines : (fallbackResult?.techStack || []),
+      keyFiles: fallbackResult?.keyFiles || [],
+      explanation: rawContent,         // full Markdown
+      detailedSummary: rawContent,     // full Markdown
+      queryAnswer: rawContent,         // full Markdown — render this on the frontend
+      reportMarkdown: rawContent,      // ← primary field: full Markdown report
+      quality: fallbackResult?.quality || null,
+      sampleQuestions: fallbackResult?.sampleQuestions || [],
+      notes: [],
+    },
     info: {
       provider: "anthropic",
       model: DEFAULT_MODEL,
