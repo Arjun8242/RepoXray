@@ -1,0 +1,85 @@
+<svg width="560" height="340" viewBox="0 0 560 340" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGlow" x1="130" y1="40" x2="130" y2="476" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7BE9FF" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#EBC4A1" stop-opacity="0.10"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="281" y1="58" x2="281" y2="280" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE7EE"/>
+      <stop offset="1" stop-color="#657584"/>
+    </linearGradient>
+    <linearGradient id="copper" x1="281" y1="58" x2="281" y2="280" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EFD0B8"/>
+      <stop offset="1" stop-color="#A3775B"/>
+    </linearGradient>
+    <linearGradient id="rail" x1="80" y1="171" x2="482" y2="171" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B2B39"/>
+      <stop offset="0.5" stop-color="#314B63"/>
+      <stop offset="1" stop-color="#262E3E"/>
+    </linearGradient>
+    <linearGradient id="iris" x1="214" y1="104" x2="348" y2="238" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#81F5FF"/>
+      <stop offset="0.56" stop-color="#4096C9"/>
+      <stop offset="1" stop-color="#122744"/>
+    </linearGradient>
+    <radialGradient id="spark" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(281 171) rotate(90) scale(28)">
+      <stop stop-color="#FFF6E3"/>
+      <stop offset="1" stop-color="#FFF6E3" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softGlow" x="0" y="0" width="562" height="340" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <filter id="drop" x="20" y="24" width="520" height="296" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <g opacity="0.8" filter="url(#softGlow)">
+    <ellipse cx="280" cy="172" rx="190" ry="110" fill="url(#bgGlow)"/>
+  </g>
+
+  <g filter="url(#drop)">
+    <rect x="84" y="136" width="396" height="70" rx="12" fill="url(#rail)"/>
+
+    <path d="M171 74L231 74L281 121L331 74L391 74L391 252L171 252V74Z" fill="#273847"/>
+    <path d="M184 86L237 86L281 127L325 86L378 86V239H184V86Z" stroke="url(#steel)" stroke-width="5" fill="none"/>
+    <path d="M153 96L206 96L249 136L281 115L313 136L356 96L409 96V256H153V96Z" stroke="url(#copper)" stroke-width="4" fill="none" opacity="0.92"/>
+
+    <g>
+      <path d="M88 171H171" stroke="#63D8EA" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="102" cy="171" r="3" fill="#6EF4FF"/>
+      <circle cx="124" cy="171" r="3" fill="#6EF4FF"/>
+      <path d="M112 171V154H146V140H163" stroke="#7AE8F2" stroke-width="2.5" fill="none"/>
+      <path d="M130 171V188H152V201H171" stroke="#D9B184" stroke-width="2.5" fill="none"/>
+    </g>
+
+    <g>
+      <path d="M391 171H474" stroke="#D5AE82" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="456" cy="171" r="3" fill="#EAC19C"/>
+      <circle cx="434" cy="171" r="3" fill="#EAC19C"/>
+      <path d="M446 171V154H418V140H391" stroke="#68DFF4" stroke-width="2.5" fill="none"/>
+      <path d="M429 171V188H408V201H391" stroke="#D6B084" stroke-width="2.5" fill="none"/>
+    </g>
+
+    <path d="M74 150C56 163 56 178 74 191" stroke="#EFC9A8" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+    <path d="M60 142C35 160 35 181 60 199" stroke="#A8F2FF" stroke-width="3.5" stroke-linecap="round" opacity="0.75"/>
+    <path d="M493 150C511 163 511 178 493 191" stroke="#EFC9A8" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+    <path d="M507 142C532 160 532 181 507 199" stroke="#A8F2FF" stroke-width="3.5" stroke-linecap="round" opacity="0.75"/>
+
+    <circle cx="281" cy="171" r="84" fill="#1A2D3E" stroke="url(#copper)" stroke-width="10"/>
+    <circle cx="281" cy="171" r="66" fill="#0F2236" stroke="#B6D6E6" stroke-opacity="0.7" stroke-width="3"/>
+
+    <g fill="url(#iris)">
+      <path d="M281 171L314 118C322 127 327 138 330 149Z"/>
+      <path d="M281 171L346 171C343 184 336 195 326 204Z"/>
+      <path d="M281 171L314 224C300 230 286 233 271 231Z"/>
+      <path d="M281 171L249 224C238 217 229 208 224 196Z"/>
+      <path d="M281 171L216 171C218 158 224 146 234 136Z"/>
+      <path d="M281 171L248 118C260 112 273 109 287 110Z"/>
+    </g>
+
+    <circle cx="281" cy="171" r="12" fill="#1B2A3B" stroke="#A9CCE1" stroke-width="2"/>
+    <circle cx="281" cy="171" r="28" fill="url(#spark)"/>
+  </g>
+
+</svg>

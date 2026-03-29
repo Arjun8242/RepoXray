@@ -2,24 +2,17 @@ const DEFAULT_MODEL = process.env.LLM_MODEL || "claude-sonnet-4-20250514";
 
 function getModelTokenLimit(model) {
   const normalized = String(model || "").toLowerCase();
-
-  // Latest Sonnet 4 — 8192 output tokens
   if (normalized.includes("claude-sonnet-4") || normalized.includes("sonnet-4")) return 8192;
   if (normalized.includes("sonnet")) return 8192;
   if (normalized.includes("opus"))   return 8192;
   if (normalized.includes("haiku"))  return 4096;
-
-  return 8192; // default to Sonnet limits
+  return 8192;
 }
 
 function getSafeMaxTokens(model) {
   const modelLimit = getModelTokenLimit(model);
   const configured = Number(process.env.LLM_MAX_TOKENS);
-
-  if (!Number.isFinite(configured) || configured <= 0) {
-    return modelLimit;
-  }
-
+  if (!Number.isFinite(configured) || configured <= 0) return modelLimit;
   return Math.min(Math.floor(configured), modelLimit);
 }
 
@@ -29,44 +22,63 @@ function getSafeMaxTokens(model) {
 
 function initialAnalysisSystemPrompt() {
   return `
-You are a senior software architect analyzing a real-world codebase.
+You are a senior software architect producing a deep, specific architecture report for a real codebase.
 
-Your goal is to reconstruct HOW the system works — not just list files.
+Your goal is to reconstruct HOW the system works — not summarize files.
 
-You MUST think in this order:
-1. Identify system layers (frontend, backend, infra, database)
-2. Identify responsibilities of each layer
-3. Identify how components interact at runtime
-4. Reconstruct request/data flow step by step
-5. Map to known architectural patterns (MVC, REST, event-driven, etc.)
+Think in this order:
+1. Identify all system layers (frontend, backend, services, database, infra)
+2. Identify the responsibility of each layer and which files own it
+3. Reconstruct runtime interactions and request/data flow step by step
+4. Map to known patterns (MVC, REST, layered, event-driven, etc.)
+5. Identify security, auth, and deployment concerns
+
+DEPTH REQUIREMENT:
+- Every section must be specific to THIS codebase — name actual files, functions, field names
+- Prefer 200 words of specific detail over 50 words of generic description
+- If a section is not applicable (e.g. no Docker found), omit it entirely
+- Target output length: 1500–2000 tokens minimum
+- Do NOT write placeholder text like "not found" — omit the section instead
+
+DIAGRAM REQUIREMENT:
+- Use ASCII box diagrams only — NO Mermaid syntax
+- Draw boxes with ┌─┐ └─┘ │ characters
+- Connect layers with │ and ▼ arrows
+- Include layer names and key files/components inside each box
 
 Rules:
 - You MAY infer standard patterns from naming and structure
 - DO NOT invent features not supported by the code
-- If uncertain, mark it as: "> *Partially inferred from structure*"
-- Focus on system behavior and flow, NOT file listing
-- Always produce a Mermaid diagram
+- If uncertain, mark it: "> *Partially inferred from structure*"
 `;
 }
 
 function followUpSystemPrompt() {
   return `
-You are a senior backend engineer explaining system behavior in response to a specific question.
+You are a senior backend engineer answering a specific question about a real codebase.
 
-Your job is to explain HOW the system works, not just WHAT exists.
+Your job is to explain HOW the system works for this specific question — not just list what exists.
 
 Focus on:
-- Direct answer to the question
-- Request flow and data flow relevant to the question
-- Specific file and function references from the provided context
-- Code-level callouts where possible
+- A direct, specific answer to the question
+- Step-by-step execution flow relevant to the question
+- Specific file names, function names, and logic from the provided context
+- Code-level callouts wherever possible
+
+DEPTH REQUIREMENT:
+- Be specific to THIS codebase — name actual files, functions, exports
+- Prefer 200 words of specific detail over 50 words of generic description
+- Target output length: 800–1200 tokens minimum
+- If information is not in the provided context, say "Not found in provided context" — do not guess
+
+DIAGRAM REQUIREMENT:
+- Use ASCII box diagrams only — NO Mermaid syntax
+- Draw the flow relevant to the question with ┌─┐ └─┘ │ ▼ characters
 
 Rules:
 - You MAY infer standard architecture patterns
 - Do NOT invent unsupported features
-- If info is missing: state "Not found in provided context"
-- Avoid generic answers — be specific to THIS codebase
-- Always include a Mermaid diagram relevant to the question
+- Avoid generic answers — every sentence should reference THIS codebase
 `;
 }
 
@@ -85,62 +97,124 @@ Key files: ${keyFileHint.join(", ") || "unknown"}
 
 ---
 
-Produce a comprehensive Markdown architecture report for this repository.
-
-Structure your output EXACTLY as follows (use these headings):
+Produce a comprehensive Markdown architecture report. Use EXACTLY these sections in this order.
+Skip any section that is genuinely not applicable — do not write placeholder text.
 
 ## Overview
-1–2 sentence summary of what this system does.
+2–3 sentences. What does this system do, who uses it, and what makes it distinctive?
 
 ## Tech Stack
-Bullet list of detected technologies and frameworks.
+A markdown table with columns: Choice | Why
+One row per major technology. Explain WHY this tech was chosen based on what you see in the code.
+Example:
+| Choice | Why |
+|--------|-----|
+| React 19 + Vite | Fast HMR, modern bundling |
 
-## Architecture Diagram
-A Mermaid flowchart showing the main layers and how they connect.
-Use this syntax:
-\`\`\`mermaid
-graph TD
-  A[Browser] -->|HTTP| B[API Server]
-  B --> C[Service Layer]
-  C --> D[(Database)]
+## High-Level Architecture
+Draw an ASCII box diagram showing ALL layers from top to bottom.
+Use this exact style:
+
+\`\`\`
+┌─────────────────────────────────────┐
+│           Frontend Layer            │
+│  React SPA — pages, components,     │
+│  context, axios API client          │
+└─────────────────────────────────────┘
+                   │ HTTP REST
+                   ▼
+┌─────────────────────────────────────┐
+│           Backend Layer             │
+│  Express.js — routes, controllers,  │
+│  middleware, services               │
+└─────────────────────────────────────┘
+                   │ Mongoose ODM
+                   ▼
+┌─────────────────────────────────────┐
+│           Database Layer            │
+│  MongoDB — Users, Workouts,         │
+│  Progress collections               │
+└─────────────────────────────────────┘
 \`\`\`
 
 ## System Layers
-For each layer (Frontend / API / Service / Data / Infra), one paragraph:
+For each detected layer (Frontend / API / Services / Data / Infra), write one focused paragraph:
 - What it does
-- Key files responsible
-- How it connects to adjacent layers
+- Which specific files own it (name them)
+- How it connects to the adjacent layer
 
 ## Request Lifecycle
-Numbered step-by-step walkthrough of a typical request through the full stack.
-Be specific: name files, functions, middleware where visible in the code.
+Numbered step-by-step walkthrough of a complete request through the system.
+Name actual files, functions, and middleware at each step. Minimum 8 steps.
 
 ## Data Flow
-Explain how data moves from input to output. Include any transformations, 
-validation steps, or external calls.
+Explain how data moves from user input to final output.
+Cover: validation → transformation → persistence → response.
+Name actual files and functions at each stage.
+
+## Authentication Flow
+Step-by-step sequence for: registration → email verification → login → protected route access.
+Use an ASCII sequence diagram with arrows between Client, Controller, Service, DB.
+Example style:
+\`\`\`
+┌──────────┐  POST /register   ┌──────────────┐
+│  Client  │──────────────────▶│ authController│
+└──────────┘                   └──────┬───────┘
+                                      │ hash password
+                                      │ save User
+                                      ▼
+                               ┌──────────────┐
+                               │ emailService  │
+                               │ sends OTP     │
+                               └──────────────┘
+\`\`\`
 
 ## Code Walkthrough
-For each key file, explain:
-- What it does
-- The most important function/export and what it does
-- How it connects to the rest of the system
+For each key file, use this exact format:
 
-Format each as:
 ### \`path/to/file.js\`
-**Role:** ...
-**Key export/function:** \`functionName()\` — ...
-**Connects to:** ...
+**Role:** what this file does in one sentence
+**Key export/function:** \`functionName()\` — what it does and why it matters
+**Connects to:** which other files call it or are called by it
 
-## Architectural Patterns
-Which patterns are in use (MVC, REST, layered, event-driven, etc.) and where.
+## Data Architecture
+For each database collection or model, list its fields:
+\`\`\`
+Users Collection
+├── _id
+├── email (unique, indexed)
+├── passwordHash
+└── isVerified (bool)
+\`\`\`
 
-## Notes & Limitations
-Any inferences made, missing context, or caveats.
+## Infrastructure & Deployment
+If Docker, CI/CD, environment config, or cloud deployment is detected:
+- Container structure and service dependencies
+- Environment variables required
+- How services communicate
 
+## Security Architecture
+List every security layer as numbered lines:
+\`\`\`
+Layer 1: [name] → [what it protects against]
+Layer 2: ...
+\`\`\`
+
+## Key Decisions & Trade-offs
+A markdown table:
+| Decision | Benefit | Trade-off |
+|----------|---------|-----------|
+One row per major architectural choice. Be specific — name the pattern and its real cost.
+
+## Summary
+One paragraph naming the exact architectural pattern
+(e.g. "3-tier MVC+Services, containerized, REST API") and what makes this codebase distinctive.
+
+---
 IMPORTANT:
-- Be specific to THIS codebase — no generic boilerplate
-- Name actual files and functions from the context
-- The Mermaid diagram is REQUIRED
+- Name actual files and functions from the context — no generic boilerplate
+- ASCII diagrams are REQUIRED for High-Level Architecture and Authentication Flow
+- Every section must contain specifics from THIS codebase
 `;
 }
 
@@ -158,43 +232,51 @@ Key files: ${keyFileHint.join(", ") || "unknown"}
 
 ---
 
-Answer the question above with a focused Markdown report.
-
-Structure your output EXACTLY as follows:
+Answer the question with a focused Markdown report. Use EXACTLY these sections.
+Skip any section not applicable — never write placeholder text.
 
 ## Direct Answer
-Answer the question clearly and concisely in 2–4 sentences.
+2–4 sentences answering the question directly and specifically.
+Name actual files or functions from the context if relevant.
 
 ## Architecture Diagram
-A Mermaid diagram relevant to the question.
-\`\`\`mermaid
-graph TD
-  ...
+An ASCII box diagram relevant to this specific question.
+Use ┌─┐ └─┘ │ ▼ characters. Show only the layers/components relevant to the question.
+\`\`\`
+┌───────────────────────┐
+│  Component Name       │
+│  file.js              │
+└───────────────────────┘
+         │
+         ▼
 \`\`\`
 
 ## Step-by-Step Execution Flow
-Numbered steps showing exactly what happens in the system for this scenario.
-Name actual files and functions from the provided context.
+Numbered steps for exactly what happens in the system for this scenario.
+Name actual files, functions, and middleware at every step. Minimum 6 steps.
 
 ## Data Flow
 How data moves through the relevant parts of the system for this question.
+Name files and functions at each transformation point.
 
 ## Code Walkthrough
-For each file directly relevant to this question:
+For each file directly relevant to the question:
 
 ### \`path/to/file.js\`
-**Role:** ...
-**Key logic:** explain the specific logic relevant to the question
-**Connects to:** ...
+**Role:** one sentence
+**Key logic:** the specific logic relevant to this question
+**Connects to:** which files it calls or is called by
 
 ## Limitations
 What could not be determined from the provided file subset.
+Be specific — name which files were missing that would answer the question fully.
 
+---
 IMPORTANT:
-- Answer specifically about THIS codebase
-- Name actual files, functions, exports from the context
-- The Mermaid diagram is REQUIRED
+- Answer specifically about THIS codebase — name actual files, functions, exports
+- ASCII diagram is REQUIRED
 - Do not produce generic architecture descriptions
+- Minimum 800 tokens of output
 `;
 }
 
@@ -242,8 +324,8 @@ async function callClaude({ systemPrompt, userPromptText }) {
 
 /* =========================
    MAIN FUNCTION
-   Returns Markdown string instead of parsed JSON.
-   analyzeRepository.js should use result.reportMarkdown directly.
+   Returns Markdown directly — no JSON parsing.
+   analyzeRepository.js uses result.reportMarkdown as the primary field.
 ========================= */
 
 export async function runStructuredAnalysisWithLLM({
@@ -270,22 +352,19 @@ export async function runStructuredAnalysisWithLLM({
     throw new Error("Empty response from Claude.");
   }
 
-  // ── The LLM now returns Markdown directly. No JSON parsing needed. ──
-  // We still return the same shape as before so analyzeRepository.js
-  // needs minimal changes: just use result.reportMarkdown everywhere.
-
-  // Extract a short overview from the first non-empty paragraph
+  // Extract short overview from ## Overview section
   const overviewMatch = rawContent.match(/##\s*Overview\s*\n+([\s\S]*?)(?=\n##|\n---|\z)/i);
   const overview = overviewMatch
     ? overviewMatch[1].trim().slice(0, 300)
     : fallbackResult?.overview || "";
 
-  // Extract tech stack bullets if present
+  // Extract tech stack from ## Tech Stack table if present
   const techStackMatch = rawContent.match(/##\s*Tech Stack\s*\n+([\s\S]*?)(?=\n##|\z)/i);
   const techStackLines = techStackMatch
     ? techStackMatch[1]
         .split("\n")
-        .map((l) => l.replace(/^[-*•]\s*/, "").trim())
+        .filter((l) => l.startsWith("|") && !l.includes("Choice") && !l.includes("---"))
+        .map((l) => l.split("|")[1]?.trim())
         .filter(Boolean)
     : [];
 
@@ -294,12 +373,12 @@ export async function runStructuredAnalysisWithLLM({
     result: {
       overview,
       techStack: techStackLines.length > 0 ? techStackLines : (fallbackResult?.techStack || []),
-      keyFiles: fallbackResult?.keyFiles || [],
-      explanation: rawContent,         // full Markdown
-      detailedSummary: rawContent,     // full Markdown
-      queryAnswer: rawContent,         // full Markdown — render this on the frontend
-      reportMarkdown: rawContent,      // ← primary field: full Markdown report
-      quality: fallbackResult?.quality || null,
+      keyFiles:        fallbackResult?.keyFiles        || [],
+      explanation:     rawContent,
+      detailedSummary: rawContent,
+      queryAnswer:     rawContent,
+      reportMarkdown:  rawContent,   
+      quality:         fallbackResult?.quality         || null,
       sampleQuestions: fallbackResult?.sampleQuestions || [],
       notes: [],
     },

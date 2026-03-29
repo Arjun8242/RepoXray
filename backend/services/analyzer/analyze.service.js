@@ -43,11 +43,194 @@ function writeAnalysisCache({ owner, repo, branch, repositoryStructure, quality 
 
 /* =========================
    TECH STACK DETECTION
+   Four passes — ordered by reliability:
+     1. File extensions       → language detection
+     2. package.json          → JS/TS ecosystem deps
+     3. README content        → frameworks, DBs, cloud, auth, AI, etc.
+     4. Config file names     → build tools, test runners, infra (no content needed)
 ========================= */
+
+/**
+ * README keyword map.
+ * Each entry: [canonicalName, [...searchTerms]]
+ * Terms matched as substrings in lowercased README text.
+ * First matching term wins — no duplicates per canonical name.
+ */
+const README_TECH_SIGNALS = [
+  // Runtimes
+  ["Node.js",           ["node.js", "nodejs", "node js"]],
+  ["Deno",              ["deno"]],
+  ["Bun",               ["bun.sh", "bunjs", "bun runtime"]],
+
+  // Frontend frameworks
+  ["React",             ["react", "reactjs", "react.js", "react dom"]],
+  ["Next.js",           ["next.js", "nextjs", "next js"]],
+  ["Vue",               ["vue.js", "vuejs", "vue 3", "vue 2"]],
+  ["Nuxt",              ["nuxt.js", "nuxtjs", "nuxt 3"]],
+  ["Svelte",            ["svelte", "sveltekit"]],
+  ["Angular",           ["angular", "@angular/core"]],
+  ["Remix",             ["remix.run", "remix framework"]],
+  ["Astro",             ["astro.build", "astro framework"]],
+  ["Solid",             ["solidjs", "solid.js"]],
+
+  // Backend frameworks
+  ["Express",           ["express.js", "expressjs", "express framework"]],
+  ["Fastify",           ["fastify"]],
+  ["NestJS",            ["nestjs", "nest.js"]],
+  ["Koa",               ["koa.js", "koajs"]],
+  ["Django",            ["django"]],
+  ["Flask",             ["flask"]],
+  ["FastAPI",           ["fastapi"]],
+  ["Spring Boot",       ["spring boot", "springboot"]],
+  ["Laravel",           ["laravel"]],
+  ["Rails",             ["ruby on rails", "rails framework"]],
+  ["ASP.NET",           ["asp.net", "aspnet", ".net core"]],
+
+  // Databases
+  ["MongoDB",           ["mongodb", "mongo database"]],
+  ["PostgreSQL",        ["postgresql", "postgres"]],
+  ["MySQL",             ["mysql"]],
+  ["SQLite",            ["sqlite"]],
+  ["Redis",             ["redis"]],
+  ["Supabase",          ["supabase"]],
+  ["Firebase",          ["firebase", "firestore", "realtime database"]],
+  ["PlanetScale",       ["planetscale"]],
+  ["DynamoDB",          ["dynamodb", "amazon dynamodb"]],
+  ["Elasticsearch",     ["elasticsearch"]],
+  ["Cassandra",         ["apache cassandra", "cassandra"]],
+  ["CockroachDB",       ["cockroachdb"]],
+
+  // ORMs & query builders
+  ["Prisma",            ["prisma"]],
+  ["Drizzle",           ["drizzle orm", "drizzle-orm"]],
+  ["Sequelize",         ["sequelize"]],
+  ["TypeORM",           ["typeorm"]],
+  ["SQLAlchemy",        ["sqlalchemy"]],
+
+  // Cloud & hosting
+  ["AWS",               ["amazon web services", "aws s3", "aws lambda", "aws ec2"]],
+  ["GCP",               ["google cloud", "google cloud platform", "google cloud run"]],
+  ["Azure",             ["microsoft azure", "azure functions", "azure devops"]],
+  ["Vercel",            ["vercel", "deploy on vercel"]],
+  ["Netlify",           ["netlify", "deploy to netlify"]],
+  ["Railway",           ["railway.app", "deploy on railway"]],
+  ["Render",            ["render.com", "deploy on render"]],
+  ["Heroku",            ["heroku"]],
+  ["Cloudflare",        ["cloudflare workers", "cloudflare pages"]],
+  ["Fly.io",            ["fly.io", "flyctl"]],
+
+  // Containers & orchestration
+  ["Docker",            ["docker", "dockerfile", "docker-compose", "docker compose", "containerized"]],
+  ["Kubernetes",        ["kubernetes", " k8s ", "helm chart"]],
+
+  // Auth & security
+  ["JWT",               ["json web token", "jsonwebtoken", "jwt authentication"]],
+  ["OAuth",             ["oauth2", "oauth 2.0", "openid connect"]],
+  ["Clerk",             ["clerk.dev", "clerk auth"]],
+  ["Auth.js",           ["next-auth", "auth.js", "authjs"]],
+  ["Passport",          ["passport.js", "passportjs"]],
+  ["Supabase Auth",     ["supabase auth"]],
+  ["Firebase Auth",     ["firebase auth", "firebase authentication"]],
+
+  // AI / ML
+  ["OpenAI",            ["openai", "gpt-4", "gpt-3", "chatgpt api", "openai api"]],
+  ["Anthropic",         ["anthropic", "claude api", "claude model"]],
+  ["LangChain",         ["langchain"]],
+  ["Hugging Face",      ["hugging face", "huggingface", "transformers library"]],
+  ["Gemini",            ["google gemini", "gemini api", "gemini pro"]],
+  ["Ollama",            ["ollama"]],
+
+  // Payments & comms
+  ["Stripe",            ["stripe", "stripe payments", "stripe api"]],
+  ["Twilio",            ["twilio"]],
+  ["SendGrid",          ["sendgrid"]],
+  ["Resend",            ["resend.com", "resend email"]],
+
+  // Message queues
+  ["BullMQ",            ["bullmq", "bull queue"]],
+  ["RabbitMQ",          ["rabbitmq"]],
+  ["Kafka",             ["apache kafka", "kafka"]],
+
+  // Testing
+  ["Jest",              ["jest testing", "jest framework"]],
+  ["Vitest",            ["vitest"]],
+  ["Cypress",           ["cypress testing", "cypress e2e"]],
+  ["Playwright",        ["playwright"]],
+
+  // CSS & UI
+  ["Tailwind CSS",      ["tailwindcss", "tailwind css", "tailwind.config"]],
+  ["Sass",              ["sass", "scss"]],
+  ["shadcn/ui",         ["shadcn", "shadcn/ui"]],
+  ["Radix UI",          ["radix ui", "radix-ui"]],
+
+  // CI/CD
+  ["GitHub Actions",    ["github actions", ".github/workflows"]],
+  ["GitLab CI",         ["gitlab ci", ".gitlab-ci"]],
+  ["CircleCI",          ["circleci"]],
+
+  // Monitoring
+  ["Sentry",            ["sentry.io", "sentry sdk"]],
+  ["Datadog",           ["datadog"]],
+];
+
+/**
+ * Config file patterns → tech name.
+ * Matched against file paths in the tree — no file content needed.
+ */
+const CONFIG_FILE_SIGNALS = [
+  [/vite\.config\.(js|ts|mjs)$/i,         "Vite"],
+  [/vitest\.config\.(js|ts)$/i,           "Vitest"],
+  [/tailwind\.config\.(js|ts|cjs|mjs)$/i, "Tailwind CSS"],
+  [/next\.config\.(js|ts|mjs)$/i,         "Next.js"],
+  [/nuxt\.config\.(js|ts)$/i,             "Nuxt"],
+  [/svelte\.config\.(js|ts)$/i,           "Svelte"],
+  [/astro\.config\.(js|ts|mjs)$/i,        "Astro"],
+  [/remix\.config\.(js|ts)$/i,            "Remix"],
+  [/jest\.config\.(js|ts|json)$/i,        "Jest"],
+  [/playwright\.config\.(js|ts)$/i,       "Playwright"],
+  [/cypress\.config\.(js|ts)$/i,          "Cypress"],
+  [/(^|\/)prisma\/schema\.prisma$/i,      "Prisma"],
+  [/drizzle\.config\.(js|ts)$/i,          "Drizzle"],
+  [/docker-compose\.ya?ml$/i,             "Docker"],
+  [/(^|\/)dockerfile$/i,                  "Docker"],
+  [/\.github\/workflows\/.+\.ya?ml$/i,    "GitHub Actions"],
+  [/requirements\.txt$/i,                 "Python"],
+  [/pyproject\.toml$/i,                   "Python"],
+  [/cargo\.toml$/i,                       "Rust"],
+  [/go\.mod$/i,                           "Go"],
+  [/pom\.xml$/i,                          "Java"],
+  [/build\.gradle(\.kts)?$/i,             "Java"],
+  [/(^|\/)gemfile$/i,                     "Ruby"],
+  [/composer\.json$/i,                    "PHP"],
+];
+
+function parseReadmeForTech(readmeContent, techSet) {
+  const text = readmeContent.toLowerCase();
+  for (const [canonicalName, terms] of README_TECH_SIGNALS) {
+    for (const term of terms) {
+      if (text.includes(term)) {
+        techSet.add(canonicalName);
+        break; // one match per canonical name is enough
+      }
+    }
+  }
+}
+
+function detectFromConfigFiles(treeFiles, techSet) {
+  for (const file of treeFiles) {
+    for (const [pattern, name] of CONFIG_FILE_SIGNALS) {
+      if (pattern.test(file.path)) {
+        techSet.add(name);
+        break;
+      }
+    }
+  }
+}
 
 function detectTechStack(treeFiles, fetchedFiles) {
   const tech = new Set();
 
+  /* ── Pass 1: file extensions → programming languages ── */
   const extensionToLanguage = {
     js:    "JavaScript",
     jsx:   "JavaScript",
@@ -73,6 +256,7 @@ function detectTechStack(treeFiles, fetchedFiles) {
     if (language) tech.add(language);
   }
 
+  /* ── Pass 2: package.json → JS/TS ecosystem deps ── */
   const packageFile = fetchedFiles.find((file) =>
     /(^|\/)package\.json$/i.test(file.path)
   );
@@ -86,12 +270,24 @@ function detectTechStack(treeFiles, fetchedFiles) {
       };
 
       const importantDeps = [
-        "react", "next", "vue",
-        "express", "fastify",
-        "mongoose", "mongodb", "pg", "mysql", "sqlite", "prisma",
-        "redis",
-        "graphql",
-        "nestjs",
+        "react", "next", "vue", "nuxt", "svelte", "@sveltejs/kit",
+        "astro", "remix", "@remix-run/node", "solid-js",
+        "express", "fastify", "koa", "@hapi/hapi", "@nestjs/core",
+        "mongoose", "mongodb", "pg", "mysql", "mysql2", "sqlite", "sqlite3",
+        "prisma", "@prisma/client", "drizzle-orm", "sequelize", "typeorm",
+        "redis", "ioredis",
+        "graphql", "apollo-server", "@apollo/server",
+        "socket.io",
+        "stripe", "twilio", "@sendgrid/mail", "resend",
+        "bullmq", "bull",
+        "passport", "jsonwebtoken", "bcrypt",
+        "firebase", "@supabase/supabase-js",
+        "@aws-sdk/client-s3", "aws-sdk",
+        "openai", "@anthropic-ai/sdk", "langchain",
+        "tailwindcss",
+        "jest", "vitest", "cypress", "@playwright/test",
+        "vite", "webpack", "esbuild",
+        "sentry", "@sentry/node",
       ];
 
       for (const depName of Object.keys(dependencies)) {
@@ -103,6 +299,18 @@ function detectTechStack(treeFiles, fetchedFiles) {
       // malformed package.json — skip
     }
   }
+
+  /* ── Pass 3: README keyword scanning ── */
+  const readmeFile = fetchedFiles.find((file) =>
+    /(^|\/)readme(\.md|\.txt|\.rst)?$/i.test(file.path)
+  );
+
+  if (readmeFile?.content) {
+    parseReadmeForTech(readmeFile.content, tech);
+  }
+
+  /* ── Pass 4: config file names in the tree (no content needed) ── */
+  detectFromConfigFiles(treeFiles, tech);
 
   return Array.from(tech).sort((a, b) => a.localeCompare(b));
 }
@@ -130,12 +338,12 @@ function ensureStringArray(value, fallback = []) {
 
 function inferRole(path) {
   const lower = path.toLowerCase();
-  if (lower.includes("route"))                       return "API route";
-  if (lower.includes("controller"))                  return "Controller";
-  if (lower.includes("service"))                     return "Service logic";
-  if (lower.includes("model") || lower.includes("schema")) return "Data model";
-  if (lower.includes("middleware"))                  return "Middleware";
-  if (lower.includes("config"))                      return "Configuration";
+  if (lower.includes("route"))                              return "API route";
+  if (lower.includes("controller"))                         return "Controller";
+  if (lower.includes("service"))                            return "Service logic";
+  if (lower.includes("model") || lower.includes("schema"))  return "Data model";
+  if (lower.includes("middleware"))                         return "Middleware";
+  if (lower.includes("config"))                             return "Configuration";
   return "Implementation file";
 }
 
@@ -148,10 +356,10 @@ function buildQualityBreakdown() {
     score: 50,
     outOf: 100,
     categories: [
-      { name: "Documentation",  score: 50 },
-      { name: "Code Structure", score: 50 },
+      { name: "Documentation",   score: 50 },
+      { name: "Code Structure",  score: 50 },
       { name: "Maintainability", score: 50 },
-      { name: "Testability",    score: 50 },
+      { name: "Testability",     score: 50 },
     ],
   };
 }
@@ -163,18 +371,18 @@ function buildInitialQuality({ treeFiles, selectedFiles, techStack }) {
   const hasTests      = treeFiles.some((file) => /(^|\/)(__tests__|tests?|spec)(\/|$)/i.test(file.path));
   const hasCi         = treeFiles.some((file) => /(^|\/)\.github\/workflows\//i.test(file.path));
 
-  const structureScore   = Math.min(100, 45 + Math.min(35, selectedCount * 4));
-  const stackScore       = Math.min(100, 40 + Math.min(35, techStack.length * 8));
-  const docsScore        = hasReadme ? 85 : 45;
-  const testingScore     = hasTests  ? 75 : 40;
-  const automationScore  = hasCi     ? 80 : 45;
+  const structureScore  = Math.min(100, 45 + Math.min(35, selectedCount * 4));
+  const stackScore      = Math.min(100, 40 + Math.min(35, techStack.length * 8));
+  const docsScore       = hasReadme ? 85 : 45;
+  const testingScore    = hasTests  ? 75 : 40;
+  const automationScore = hasCi     ? 80 : 45;
 
   const categories = [
-    { name: "Structure",         score: structureScore  },
-    { name: "Stack Clarity",     score: stackScore      },
-    { name: "Documentation",     score: docsScore       },
-    { name: "Testing Signals",   score: testingScore    },
-    { name: "Automation",        score: automationScore },
+    { name: "Structure",       score: structureScore  },
+    { name: "Stack Clarity",   score: stackScore      },
+    { name: "Documentation",   score: docsScore       },
+    { name: "Testing Signals", score: testingScore    },
+    { name: "Automation",      score: automationScore },
   ];
 
   const score = Math.round(
@@ -212,8 +420,8 @@ function buildFallbackMarkdownReport({
   selectedCount,
   quality,
 }) {
-  const stackLine  = techStack.length ? techStack.join(", ") : "Unknown";
-  const focusLine  = queryCategories.length ? queryCategories.join(", ") : "general architecture";
+  const stackLine = techStack.length ? techStack.join(", ") : "Unknown";
+  const focusLine = queryCategories.length ? queryCategories.join(", ") : "general architecture";
 
   const tableRows = keyFiles.length
     ? keyFiles.map((file) => `| \`${file.path}\` | ${file.role} |`).join("\n")
@@ -350,8 +558,8 @@ export async function analyzeRepository({
   question,
   branch,
   maxFiles,
-  debug         = false,
-  onStage       = null,
+  debug             = false,
+  onStage           = null,
   isInitialAnalysis = false,
 }) {
   const emit = (stage) => {
@@ -410,11 +618,36 @@ export async function analyzeRepository({
     };
   });
 
-  /* ── 4. Detect tech stack ── */
+  /* ── 4. Detect tech stack ──
+     Always fetch the README separately for detectTechStack so README-based
+     detection works even when the README wasn't selected as a key file.
+  ── */
   emit(STAGES.DETECT_STACK);
-  const techStack = detectTechStack(snapshot.files, filesWithReason);
 
-  /* ── 5. Initial analysis (repo scan only — no LLM question answering) ── */
+  const readmePath = snapshot.files.find((f) =>
+    /(^|\/)readme(\.md|\.txt|\.rst)?$/i.test(f.path)
+  )?.path;
+
+  let allFetchedForStack = filesWithReason;
+
+  if (readmePath && !selectedPaths.includes(readmePath)) {
+    try {
+      const readmeFetch = await fetchManyFileContents({
+        owner:     snapshot.owner,
+        repo:      snapshot.repo,
+        branch:    snapshot.branch,
+        filePaths: [readmePath],
+      });
+      const readmeFiles = ensureArray(readmeFetch?.files);
+      allFetchedForStack = [...filesWithReason, ...readmeFiles];
+    } catch {
+      // README fetch failed — continue with what we have
+    }
+  }
+
+  const techStack = detectTechStack(snapshot.files, allFetchedForStack);
+
+  /* ── 5. Initial analysis (repo scan only — no LLM) ── */
   if (isInitialAnalysis) {
     const initialQuality = buildInitialQuality({
       treeFiles:     snapshot.files,
@@ -506,14 +739,11 @@ export async function analyzeRepository({
       isInitialAnalysis,
     });
 
-    if (!llm?.result) {
-      throw new Error("Empty LLM result");
-    }
+    if (!llm?.result) throw new Error("Empty LLM result");
 
     const llmResult = llm.result;
 
-    // ── Markdown is the primary output field ──
-    // If the LLM returned something too short, fall back to heuristic report.
+    // Markdown is the primary output — fall back to heuristic if too short
     if (
       typeof llmResult.reportMarkdown !== "string" ||
       llmResult.reportMarkdown.trim().length < 100
@@ -521,26 +751,19 @@ export async function analyzeRepository({
       llmResult.reportMarkdown = fallback.reportMarkdown;
     }
 
-    // Keep backward-compat aliases pointing at the same Markdown string.
     llmResult.explanation     = llmResult.reportMarkdown;
     llmResult.detailedSummary = llmResult.reportMarkdown;
     llmResult.queryAnswer     = llmResult.reportMarkdown;
 
-    // overview: short extracted summary or fallback
     if (typeof llmResult.overview !== "string" || llmResult.overview.trim().length === 0) {
       llmResult.overview = fallback.overview;
     }
 
-    // techStack: LLM-detected or fallback
-    if (!Array.isArray(llmResult.techStack) || llmResult.techStack.length === 0) {
-      llmResult.techStack = fallback.techStack;
-    }
+    // Always use our deterministic techStack — more complete than LLM guessing
+    llmResult.techStack = techStack;
 
-    // quality: always use heuristic score (LLM no longer computes this,
-    // saving ~500 tokens for more useful diagram/walkthrough content)
     llmResult.quality = cachedAnalysis?.quality || fallback.quality;
 
-    // sampleQuestions: LLM list or fallback
     const llmSampleQuestions = ensureStringArray(llmResult.sampleQuestions);
     llmResult.sampleQuestions = llmSampleQuestions.length > 0
       ? llmSampleQuestions
@@ -551,7 +774,6 @@ export async function analyzeRepository({
 
   } catch (error) {
     fallback.notes = [...fallback.notes, `LLM unavailable: ${error.message}`];
-
     llm = {
       usedLlm: false,
       result:  fallback,
@@ -569,7 +791,7 @@ export async function analyzeRepository({
     explanation:         llm.result.explanation,
     detailedSummary:     llm.result.detailedSummary,
     queryAnswer:         llm.result.queryAnswer,
-    reportMarkdown:      llm.result.reportMarkdown, 
+    reportMarkdown:      llm.result.reportMarkdown,
     quality:             cachedAnalysis?.quality || llm.result.quality,
     sampleQuestions:     llm.result.sampleQuestions,
     repositoryStructure: cachedAnalysis?.repositoryStructure || repositoryStructure,

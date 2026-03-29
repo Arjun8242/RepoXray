@@ -19,6 +19,11 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "RepoXray",
   description: "RepoXray analyzes GitHub repositories with deterministic file selection and structured AI explanations.",
+  icons: {
+    icon: "/repoxray-logo.svg",
+    shortcut: "/repoxray-logo.svg",
+    apple: "/repoxray-logo.svg",
+  },
 };
 
 export default function RootLayout({
