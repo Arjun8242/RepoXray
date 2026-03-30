@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend (Next.js) Deployment Notes
 
-## Getting Started
+This frontend is expected to be deployed on Vercel and call the backend deployed on EC2.
 
-First, run the development server:
+## Required Environment Variable
+
+Set this in Vercel Project Settings -> Environment Variables:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Important: for a Vercel-hosted frontend (HTTPS), this backend URL should also be HTTPS. If you keep the backend as HTTP only, browsers will block requests due to mixed-content rules.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local Development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+The app runs at `http://localhost:3000`.
 
-To learn more about Next.js, take a look at the following resources:
+## Production Checklist (Vercel + EC2)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Backend is reachable publicly from the internet.
+2. Backend returns CORS headers for your Vercel domain(s).
+3. `NEXT_PUBLIC_API_BASE_URL` points to backend HTTPS URL.
+4. EC2 security group allows inbound traffic to the backend port (or to Nginx 80/443 if reverse-proxied).
+5. Backend health check is working at `/health`.
