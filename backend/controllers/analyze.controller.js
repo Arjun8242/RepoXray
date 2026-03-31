@@ -40,12 +40,13 @@ export const analyzeRepositoryController = async (req, res) => {
       id: session.analysisId,
     });
   } catch (error) {
-    const status = error.status && Number.isInteger(error.status) ? error.status : 500;
+  console.error("ANALYZE ERROR:", error);
+  const status = error.status && Number.isInteger(error.status) ? error.status : 500;
 
-    return res.status(status).json({
-      error: error.message || "Failed to analyze repository.",
-    });
-  }
+  return res.status(status).json({
+    error: error.message || "Failed to analyze repository.",
+  });
+}
 };
 
 export const getAnalysisByIdController = async (req, res) => {
