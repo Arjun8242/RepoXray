@@ -9,8 +9,13 @@ const app = express();
 
 app.use(cors({
     origin: [
+<<<<<<< HEAD
         "http://localhost:5173",
         "https://your-vercel-app.vercel.app"
+=======
+        "http://localhost:3000",
+        "https://repo-xray.vercel.app"
+>>>>>>> b6d47a0 (updating frontend url in cors)
     ],
     credentials: true
 }));
